@@ -1,4 +1,4 @@
-/*global Flow, crossroads */
+/*global $, Flow, crossroads */
 /*
 
 [MIT licensed](http://en.wikipedia.org/wiki/MIT_License)
