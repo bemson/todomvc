@@ -5,32 +5,7 @@
 (c) Bemi Faison (http://github.com/bemson/todomvc/)
 
 */
-/*
-
-Flow is a state-based JavaScript framework, for unparalleled code organization and control. State-based programming reduces the code complexity, redundancy and concurrency issues inherent to imperative languages like JavaScript, and results in mcomprehensive, maintanable, confident web development.
-
-managing program state. This demonstration of Flow iis a demonstration of Flow
-
-that makes it easy to manage programm state inherent to a task.
-
-that lets you define and navigate the programmatic state inherent to a task.
-
-Flow lets you arrange application, ui, and business logic as an object literal, called a _program_. Each key represents a program state or state attribute. States may contain states, and attributes describe their functionality and/or logic, respectively.
-
-Flow lets you define a program as functional relationships applications with a single object literal. Each key is parsed as a state or a state attribute. States may contain nested states, and attributes let you define functionality and/or logic
-
-hierarchical states to define functional relationships and structure program logic. A state may contain child states, or attributes that 
-
-Nested states define 
-
- Programs are compiled into Flow instances.
-
-Programs are compiled
-Each state has attributes that impact how 
-
-While verbose, this structure code written for Flow is easier to read, comprehend and alter
-*/
-(function( window ) {
+(function ( window ) {
 	'use strict';
 
   // This object tree is the _program_ that will be compiled into our Todo application. declares all the states of our Todo program. When passed to Flow it is compiled into a Flow application (a Flow instance).
@@ -74,10 +49,9 @@ While verbose, this structure code written for Flow is easier to read, comprehen
         gui: {
 
           dom: function () {
-            var
-              gui = {};
+            var gui = {};
 
-            this.data( 'gui', gui );
+            this.data.gui = gui;
 
             gui.$app = $( '#todoapp' );
             gui.$todos = $( '#todo-list' );
@@ -95,7 +69,7 @@ While verbose, this structure code written for Flow is easier to read, comprehen
 
           events: function () {
             var
-              gui = this.data( 'gui' );
+              gui = this.data.gui;
 
             gui.$app.on( 'keyup', '#new-todo', this.callbacks( '/draft/type' ) );
             gui.$app.on( 'change', '#toggle-all', this.callbacks( '/markAll' ) );
@@ -113,11 +87,11 @@ While verbose, this structure code written for Flow is easier to read, comprehen
           var
             router = crossroads.create();
 
-          this.data( 'router', router );
+          this.data.router = router;
 
-          router.addRoute( 'active', this.callbacks().todos.active );
-          router.addRoute( 'completed', this.callbacks().todos.completed );
-          router.bypassed.add(this.callbacks().todos.all);
+          router.addRoute( 'active', this.callbacks('//todos/active/') );
+          router.addRoute( 'completed', this.callbacks('//todos/completed') );
+          router.bypassed.add(this.callbacks('//todos/all'));
 
           if ( 'onhashchange' in window) {
             $(window).on( 'hashchange', this.callbacks( '/monitor/hash' ) );
@@ -125,12 +99,11 @@ While verbose, this structure code written for Flow is easier to read, comprehen
         },
 
         template: function () {
-          this.data( 'todoTpl', this.data( 'gui' ).$todos.find( 'li:last' ).clone() );
+          this.data.todoTpl = this.data.gui.$todos.find( 'li:last' ).clone();
         },
 
         stage: function () {
-          var
-            gui = this.data( 'gui' );
+          var gui = this.data.gui;
 
           gui.$todos.empty();
           gui.$filters.find( 'a' ).removeClass( 'selected' );
@@ -143,14 +116,11 @@ While verbose, this structure code written for Flow is easier to read, comprehen
         _sequence: 1,
 
         // execute child states when navigating backwards
-        _bover: function () {
-          this.go('.');
-        },
+        _bover: '@self',
 
         // tear down router stuff
         routing: function () {
-          var
-            router = this.data( 'router' );
+          var router = this.data.router;
 
           // destroy route handlers
           router.removeAllRoutes();
@@ -165,7 +135,7 @@ While verbose, this structure code written for Flow is easier to read, comprehen
 
         // remove event listeners
         events: function () {
-          this.data( 'gui' ).$app.off();
+          this.data.gui.$app.off();
         }
 
       },
@@ -177,38 +147,30 @@ While verbose, this structure code written for Flow is easier to read, comprehen
         _data: 'todosComplete',
 
         // automatically collect flows with this state
-        _store: 'todo',
+        _capture: {has: 'todo'},
 
         // go to the default view
-        _on: function () {
-          this.go( 'all' );
-        },
+        _on: 'all',
 
         load: {
 
           _sequence: 1,
 
-          _over: function () {
-            // execute all children of this state
-            this.go('.');
-          },
+          _over: '.',
 
-          todos: {
+          // prevent sub-instances flows from controlling this one
+          _perms: false,
 
-            // prevent "child" flows from controlling this one
-            _lock: 1,
-
-            _on: function () {
-              // create and instantiate Flows for each stored todo item
-              ( JSON.parse( localStorage.getItem( 'todos-flow' ) ) || [] )
-                .forEach(function ( storedTodoItem ) {
-                  (new Flow( TodoItemProgram )).target( 1, storedTodoItem.title, storedTodoItem.completed );
-                });
-            }
+          todos: function () {
+            // create and instantiate Flows for each stored todo item
+            ( JSON.parse( localStorage.getItem( 'todos-flow' ) ) || [] )
+              .forEach(function ( storedTodoItem ) {
+                (new Flow( TodoItemProgram )).target( 1, storedTodoItem.title, storedTodoItem.completed );
+              });
           },
 
           hash: function () {
-            this.data( 'router' ).parse( location.hash.substr( 2 ) );
+            this.data.router.parse( location.hash.substr( 2 ) );
           }
 
         },
@@ -217,21 +179,16 @@ While verbose, this structure code written for Flow is easier to read, comprehen
 
           _sequence: 1,
 
-          _bover: function () {
-            this.go('.');
-          },
-
           items: function () {
             localStorage.setItem(
               'todos-flow',
               JSON.stringify(
-                this.store( '/', true )
-                  .map(function ( todoFlow ) {
-                    return {
-                      title: todoFlow.data( 'text' ),
-                      completed: todoFlow.status().state === 'complete'
-                    };
-                  })
+                this.subs().map(function ( todoFlow ) {
+                  return {
+                    title: todoFlow.data.text,
+                    completed: todoFlow.state.name === 'complete'
+                  };
+                })
               )
             );
           }
@@ -243,68 +200,67 @@ While verbose, this structure code written for Flow is easier to read, comprehen
           _root: 1,
 
           _in: function () {
-            this.data( 'gui' )['$tab_' + this.status().state].addClass( 'selected' );
+            this.data.gui['$tab_' + this.state.name].addClass( 'selected' );
           },
 
-          _on: function () {
-            this.go( 'update' );
-          },
+          _on: 'update',
 
           update: {
 
             _sequence: 1,
 
-            _gate: true,
+            _data: {
+              subs: 0,
+              total: 0,
+              incomplete: 0,
+              complete: 0
+            },
 
-            _data: 'todoStates',
+            _in: function () {
+              var subs = this.subs();
+              this.data.subs = subs;
+              this.data.total = subs.length;
+              this.data.incomplete = subs.filter(function (inst) {
+                return inst.state.name !== 'complete';
+              }).length;
+              this.data.complete = this.data.total - this.data.complete;
+            },
 
             list: function () {
               var
-                gui = this.data( 'gui' ),
-                todoStates =[];
+                gui = this.data.gui,
+                itemsToRemove = this.subs({on:[0, 'todo']}).filter(function (itemFlow) {
+                  return !itemFlow.state.index || itemFlow.status('phase') === 'out'
+                })
+              ;
 
               // first - remove main listing from dom (speed bump?)
               gui.$todos.detach();
               // then - detach all children (as opposed to emptying the container - in order to preserve event listeners)
               gui.$todos.children().detach();
-              // remove all "destroyed" flow instance items from store
-              this.store(
-                // pass in collection of flows that are destroyed or leaving their todo state
-                this.store( '/', true ).filter(function ( todoFlow ) {
-                  var
-                    status = todoFlow.status();
-
-                  if ( !status.index || ( status.phase === 'out' && status.state === 'todo' ) ) {
-                    return true;
-                  } else {
-                    // capture the status object for all other flows
-                    todoStates[ todoStates.length ] = status;
-                  }
-                }),
-                // this flag tells the store to remove the array of "destroyed" flows
-                true
-              );
-              // capture remaining todo status objects
-              this.data( 'todoStates', todoStates );
+              // remove items if any are ready to go
+              if (itemsToRemove.length) {
+                itemsToRemove.unshift('remove');
+                this.subs.apply(this, itemsToRemove);
+              }
               // re-append each (filtered) todo's dom element
               gui.$todos.append.apply(
                 gui.$todos,
-                this.store().map(function ( todoFlow ) {
-                  return todoFlow.data( 'gui' ).$main;
+                this.subs(null).map(function ( todoFlow ) {
+                  return todoFlow.data.gui.$main;
                 })
               );
-
+              // re-append listing to main
               gui.$main.append(gui.$todos);
 
             },
 
             footer: function () {
-              var
-                $footer = this.data( 'gui' ).$footer;
-              if (!this.store( '/', true).length) {
-                $footer.hide();
-              } else {
+              var $footer = this.data.gui.$footer;
+              if (this.subs().length) {
                 $footer.show();
+              } else {
+                $footer.hide();
               }
             },
 
@@ -312,10 +268,8 @@ While verbose, this structure code written for Flow is easier to read, comprehen
 
               remaining: function () {
                 var
-                  gui = this.data( 'gui' ),
-                  tally = this.data( 'todoStates' ).filter(function (todoStatus) {
-                    return todoStatus.state !== 'complete';
-                  }).length
+                  gui = this.data.gui,
+                  tally = this.subs().length - this.subs({on:'complete'}).length
                 ;
                 gui.$count.html([
                     '<strong>' + tally + '</strong>',
@@ -328,18 +282,15 @@ While verbose, this structure code written for Flow is easier to read, comprehen
 
               completed: function () {
                 var
-                  clearButton = this.data( 'gui' ).$clear,
-                  completedItemsCnt = this.data( 'todoStates' )
-                    .filter(function (todoStatus) {
-                      return todoStatus.state === 'complete';
-                    }).length
+                  clearButton = this.data.gui.$clear,
+                  completedItemsCnt = this.subs({on:'complete'}).length
                 ;
                 // if there are completed todos...
                 if (completedItemsCnt) {
                   // show and update button text
-                  clearButton.show().text(
+                  clearButton.text(
                     'Clear completed ( ' + completedItemsCnt + ' )'
-                  );
+                  ).show();
                 } else { // otherwise, when no items are completed...
                   // hide the button
                   clearButton.hide();
@@ -350,21 +301,20 @@ While verbose, this structure code written for Flow is easier to read, comprehen
 
             markAll: function () {
               var
-                gui = this.data( 'gui' ),
-                todoStates = this.data( 'todoStates' ),
+                gui = this.data.gui,
+                totalStates = this.subs().length,
                 // flag when all todos are on their "complete" state
-                todosComplete = !todoStates.some(function ( todoState ) {
-                  return todoState.state !== 'complete';
-                });
+                todosComplete = this.subs({on: 'complete'}).length === totalStates
+              ;
 
               // show and set, or hide the toggle
-              if (todoStates.length) {
+              if (totalStates) {
                 gui.$markAll.show().attr( 'checked', todosComplete);
               } else {
                 gui.$markAll.hide();
               }
               // update all-done flag
-              this.data( 'todosComplete', todosComplete);
+              this.data.todosComplete = todosComplete;
             },
 
             // focus on the todo item that triggered this update, or the draft todo field
@@ -373,8 +323,9 @@ While verbose, this structure code written for Flow is easier to read, comprehen
                 triggerFlow,
                 todoItems,
                 // the third to last state, which led to this function
-                triggerState = this.status().trail.slice( -3, -2 )[0] || '',
-                gui = this.data( 'gui' );
+                triggerState = this.status('trail').slice( -3, -2 )[0] || '',
+                gui = this.data.gui
+              ;
 
               // if no triggerstate, or started by a purge, hash change, or new item...
               if (triggerState.indexOf( 'purge' ) + 1 || triggerState.indexOf( 'hash' ) + 1 || triggerState.indexOf( 'draft' ) + 1) {
@@ -386,15 +337,15 @@ While verbose, this structure code written for Flow is easier to read, comprehen
                 gui.$markAll.focus();
               } else { // otherwise, when the trigger state is unclear...
                 // get store items available (to this view)
-                todoItems = this.store();
+                todoItems = this.subs();
                 // the first - if any - argument passed via the last .target() call
                 triggerFlow = this.args(0);
                 // get available todo notes
-                todoItems = this.store();
+                todoItems = this.subs();
                 // if the triggering flow is a stored item...
                 if (triggerFlow && todoItems.length && todoItems.indexOf(triggerFlow) + 1) {
                   // re/focus on it's checkbox
-                  triggerFlow.data( 'gui' ).$mark.focus();
+                  triggerFlow.data.gui.$mark.focus();
                 } else { // otherwise, when no triggering flow or it's not accessible (anymore)...
                   // focus on draft field (by default)
                   // gui.$draftTodo.focus();
@@ -412,9 +363,9 @@ While verbose, this structure code written for Flow is easier to read, comprehen
 
               // delay saving on non-opera browsers
               _in: function () {
-                if (!$.browser.opera) {
-                  this.wait( 5000 );
-                }
+                // if (!$.browser.opera) {
+                //   this.wait( 5000 );
+                // }
               }
 
             }
@@ -423,26 +374,26 @@ While verbose, this structure code written for Flow is easier to read, comprehen
 
           markAll: {
 
-            _lock: 1,
+            _perms: false,
+
+            _tail: '@root',
 
             _on: function () {
               var
                 // alias collection of dom elements
-                gui = this.data( 'gui' ),
+                gui = this.data.gui,
                 // global flag state
-                initialFlag = this.data( 'todosComplete' ),
+                initialFlag = this.data.todosComplete,
                 // resolve flag target, based on whether the global checkbox is enabled
                 destinationState = initialFlag ? '/' : '/complete'
               ;
               // detach main listing (speed bump?)
               gui.$todos.detach();
               // with all todos notes...
-              this.store( '/', true).forEach(function (todoFlow) {
+              this.subs().forEach(function (todoFlow) {
                 // target the destination state
                 todoFlow.target(destinationState);
               });
-              // go to root in order to update
-              this.go('/');
             }
 
           },
@@ -450,13 +401,13 @@ While verbose, this structure code written for Flow is easier to read, comprehen
           draft: {
 
             _on: function () {
-              this.data( 'gui' ).$draftTodo.focus();
+              this.data.gui.$draftTodo.focus();
             },
 
             type: {
 
               _on: function (evt) {
-                if (evt && evt.keyCode === this.data('constants').RETURN_KEY) {
+                if (evt && evt.keyCode === this.data.constants.RETURN_KEY) {
                   evt.preventDefault();
                   this.target( 'enter' );
                 }
@@ -469,7 +420,7 @@ While verbose, this structure code written for Flow is easier to read, comprehen
                 _in: function () {
                   var
                     // alias collection of dom elements
-                    gui = this.data( 'gui' ),
+                    gui = this.data.gui,
                     // get original field value
                     original = gui.$draftTodo.val(),
                     // the trimmed draft field value
@@ -478,7 +429,7 @@ While verbose, this structure code written for Flow is easier to read, comprehen
                   // if the trimmed value is valid...
                   if (trimmed.length) {
                     // capture the trimmed value
-                    this.data( 'text', trimmed);
+                    this.data.text = trimmed;
                     // clear the value
                     gui.$draftTodo.val( '' );
                   } else { // otherwise, when the trimmed value is invalid...
@@ -494,7 +445,7 @@ While verbose, this structure code written for Flow is easier to read, comprehen
 
                 _on: function () {
                   // add a new todo item with the entered text
-                  this.target( '/add', this.data( 'text' ));
+                  this.target( '/add', this.data.text);
                 }
 
               }
@@ -504,25 +455,22 @@ While verbose, this structure code written for Flow is easier to read, comprehen
           },
 
           add: {
-
-            _lock: 1,
-
+            _perms: '!sub',
             _on: function (text, done) {
               var
-                gui = this.data( 'gui' ),
-                todoItemFlow = new Flow( TodoItemProgram );
-
+                gui = this.data.gui,
+                todoItemFlow = new Flow(TodoItemProgram)
+              ;
               // init todo item
               todoItemFlow.target(1, text, done);
-              // update the listing
-              this.go('/');
               // if this state came from a keypress event...
-              if (this.status().trail[0].indexOf( 'keypress' ) + 1) {
+              if (~this.status('trail')[0].indexOf( 'type' )) {
                 // assume, this add call came from the draft state, so go back now that we're done
                 this.go( '/draft' );
               }
+              // update the listing
+              this.go('/');
             }
-
           },
 
           monitor: {
@@ -531,7 +479,7 @@ While verbose, this structure code written for Flow is easier to read, comprehen
 
             filterSelect: function (evt) {
               // if the spacebar is tapped while focused on the filters...
-              if (evt.keyCode === this.data( 'constants' ).SPACE_KEY) {
+              if (evt.keyCode === this.data.constants.SPACE_KEY) {
                 // set the hash to the link's hash
                 location.hash = evt.target.hash;
               }
@@ -539,39 +487,36 @@ While verbose, this structure code written for Flow is easier to read, comprehen
 
           },
 
-          purge: {
+          purge: function () {
+            var
+              // get gui
+              gui = this.data.gui,
+              // get all completed flows
+              completedFlows = this.subs('complete')
+            ;
 
-            _on: function () {
-              var
-                // get gui
-                gui = this.data( 'gui' ),
-                // get all completed flows
-                completedFlows = this.store( 'complete', true );
-
-              // if there are completed flows...
-              if (completedFlows.length) {
-                // remove from dom (speedup)
-                gui.$todos.detach();
-                // with each completed flow...
-                completedFlows.forEach(function (todoFlow) {
-                  // point flow to the zero-state
-                  todoFlow.go(0);
-                });
-              }
+            // if there are completed flows...
+            if (completedFlows.length) {
+              // remove from dom (speedup)
+              gui.$todos.detach();
+              // with each completed flow...
+              completedFlows.forEach(function (todoFlow) {
+                // point flow to the zero-state
+                todoFlow.go(0);
+              });
             }
-
           },
 
           _out: function () {
             // unhighlight the corresponding tab
-            this.data( 'gui' )['$tab_' + this.status().state].removeClass( 'selected' );
+            this.data.gui['$tab_' + this.state.name].removeClass( 'selected' );
           }
 
         },
 
         active: {
 
-          _store: 'todo',
+          _capture: 'todo',
 
           _import: '//todos/all/'
 
@@ -579,7 +524,7 @@ While verbose, this structure code written for Flow is easier to read, comprehen
 
         completed: {
 
-          _store: 'complete',
+          _capture: 'complete',
 
           _import: '//todos/all/'
 
@@ -611,11 +556,10 @@ While verbose, this structure code written for Flow is easier to read, comprehen
 
       // do all the setup in the program's root state
       _on: function ( text, done ) {
-        var
-          gui = {};
+        var gui = {};
 
         // get our dom structure from the owner, then define references to various elements within
-        gui.$main = this.owner().data( 'todoTpl' ).clone();
+        gui.$main = this.owner().data.todoTpl.clone();
         gui.$view = gui.$main.find( '.view' );
         gui.$label = gui.$main.find( 'label' );
         gui.$field = gui.$main.find( '.edit' );
@@ -624,20 +568,20 @@ While verbose, this structure code written for Flow is easier to read, comprehen
 
         // set a new value for the data variable "text"
         if (typeof text === 'string') {
-          this.data( 'text', text );
+          this.data.text = text;
         }
 
         // these handlers work when the current state can access the given (relative) path
-        gui.$main.on( 'change', '.toggle', this.callbacks( '[complete|incomplete]' ));
+        gui.$main.on( 'change', '.toggle', this.callbacks( 'complete|incomplete' ));
         gui.$main.on( 'dblclick', '.view', this.callbacks( 'edit' ));
 
         // these handlers work everytime, since the path is "absolute" - rooted to the program state
-        gui.$main.on( 'keyup', '.edit', this.callbacks().todo.edit.type );
-        gui.$main.on( 'click', '.destroy', this.callbacks().todo.destroy );
-        gui.$main.on( 'blur', '.edit', this.callbacks().todo );
+        gui.$main.on( 'keyup', '.edit', this.callbacks('//todo/edit/type'));
+        gui.$main.on( 'click', '.destroy', this.callbacks('//todo/destroy'));
+        gui.$main.on( 'blur', '.edit', this.callbacks('//todo'));
 
         // capture the gui object, for referencing within other states
-        this.data( 'gui', gui );
+        this.data.gui = gui;
 
         // go to complete state, if done
         this.go( done ? '//todo/complete' : '//todo/' );
@@ -648,7 +592,7 @@ While verbose, this structure code written for Flow is easier to read, comprehen
 
         // t
         _over: function () {
-          if (this.data( 'text' )) {
+          if (this.data.text) {
             this.go( '@self' );
           }
         },
@@ -670,10 +614,7 @@ While verbose, this structure code written for Flow is easier to read, comprehen
           _pendable: 0,
 
           _in: function () {
-            var
-              // alias the data store
-              gui = this.data( 'gui' )
-            ;
+            var gui = this.data.gui;
             // check this box
             gui.$mark.attr( 'checked', 'checked' );
             // set class to show the task is completed
@@ -688,7 +629,7 @@ While verbose, this structure code written for Flow is easier to read, comprehen
           _out: function () {
             var
               // alias the data store
-              gui = this.data( 'gui' );
+              gui = this.data.gui;
 
             // remove checkbox state
             gui.$mark.removeAttr( 'checked' );
@@ -704,18 +645,17 @@ While verbose, this structure code written for Flow is easier to read, comprehen
           _owner: '/edit',
 
           _in: function () {
-            var
-              gui = this.data( 'gui' );
+            var gui = this.data.gui;
 
             // set value of field to the todo item value
-            gui.$field.val( this.data( 'text' ));
+            gui.$field.val( this.data.text);
             // set main class
             gui.$main.addClass( 'editing' );
           },
 
           _on: function () {
             // select the text field
-            this.data( 'gui' ).$field.select();
+            this.data.gui.$field.select();
           },
 
           type: {
@@ -724,8 +664,7 @@ While verbose, this structure code written for Flow is easier to read, comprehen
             _owner: -1,
 
             _on: function ( evt ) {
-              var
-                constants = this.owner().data('constants');
+              var constants = this.owner().data.constants;
 
               if (evt && (evt.keyCode === constants.RETURN_KEY || evt.keyCode === constants.ESCAPE_KEY )) {
 
@@ -746,19 +685,20 @@ While verbose, this structure code written for Flow is easier to read, comprehen
 
           // revert input to the original value
           revert: function () {
-            this.data( 'gui' ).$field.val(this.data( 'text' ));
+            this.data.gui.$field.val(this.data.text);
           },
 
           _out: function () {
             var
-              gui = this.data( 'gui' ),
+              gui = this.data.gui,
               enteredValue = $.trim( gui.$field.val() ),
-              originalValue = this.data( 'text' );
+              originalValue = this.data.text
+            ;
 
             if (enteredValue !== originalValue) {
               if (enteredValue.length) {
                 // capture new value
-                this.data( 'text', enteredValue );
+                this.data.text = enteredValue;
                 // save the note
                 this.go( '/update' );
               } else {
@@ -777,9 +717,9 @@ While verbose, this structure code written for Flow is easier to read, comprehen
 
           note: function () {
             var
-              gui = this.data( 'gui' ),
-              text = this.data( 'text' );
-
+              gui = this.data.gui,
+              text = this.data.text
+            ;
             // set text of todo row - preserve whitespace
             gui.$label.html( text.replace(/\s/g, '&nbsp;' ) );
             // set value of todo field (since it may have been trimmed)
@@ -796,8 +736,7 @@ While verbose, this structure code written for Flow is easier to read, comprehen
       },
 
       _out: function () {
-        var
-          gui = this.data( 'gui' );
+        var gui = this.data.gui;
 
         if (gui) {
           // rip events
