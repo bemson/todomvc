@@ -1,9 +1,9 @@
 /*!
- * Salt v0.5.1
+ * Salt v0.5.5
  * http://github.com/bemson/salt/
  *
  * Dependencies:
- * - Panzer v0.3.7 / Bemi Faison (c) 2012 / MIT (http://github.com/bemson/Panzer/)
+ * - Panzer v0.3.13 / Bemi Faison (c) 2012 / MIT (http://github.com/bemson/Panzer/)
  *
  * Copyright, Bemi Faison
  * Released under the MIT License
@@ -15,7 +15,7 @@
   function initSalt(require) {
 
     var
-      Salt = ((inCJS || inAMD) ? require('Panzer') : scope.Panzer).create(),
+      Salt = ((inCJS || inAMD) ? require('panzer') : scope.Panzer).create(),
       rand_string = (Math.ceil(Math.random() * 5000) + 3000).toString(18),
       corePkgDef = Salt.pkg('core'),
       staticUnusedArray = [],
@@ -31,9 +31,9 @@
         },
       tokenPrefix = '@',
       defaultPermissions = {world: true, owner: true, sub: true, self: true},
-      copyOfDefaultPermissions = merge(defaultPermissions),
+      redirectFlag = 1,
       // regexps
-      r_queryIsTokenized = new RegExp('[\\.\\|' + tokenPrefix + ']'),
+      r_queryIsTokenized = new RegExp('\\.|\\||^' + tokenPrefix + '|\\|' + tokenPrefix),
       r_validAbsolutePath = /^\/\/(?:\w+\/)+/,
       r_trimSlashes = /^\/+|\/+$/g,
       r_hasNonAlphanumericCharacter = /\W/,
@@ -156,27 +156,25 @@
                 (groupName = groupName.trim().toLowerCase()) &&
                 !defaultPermissions.hasOwnProperty(groupName)
               ) {
-                groups[groupName.toLowerCase()] = true;
+                groups[groupName] = true;
               }
             }
             node.groups = groups;
-            node.cGrps = Object.keys(groups);
           }
+          node.cGrps = Object.keys(node.groups);
         },
         // Specify cascading permissions when a state is entered and exited
-        _perms: function (tagName, exists, tags, node, parentNode, pkg) {
-          var perms;
-          if (exists) {
-            perms = perms_parse(tags[tagName], parentNode.lp);
-            if (perms) {
-              node.perms = node.lp = perms;
-            }
+        _perms: function (tagName, exists, tags, node, parentNode, pkg, idx) {
+          node.perms = 0;
+          if (exists || idx === 1) {
+            // when present or on first node
+            node.perms = node.lp = (exists) ? perms_parse(tags[tagName], parentNode.lp) : merge(defaultPermissions);
           } else if (parentNode) {
-            node.perms = 0;
+            // pass-thru parent permmissions data
             node.lp = parentNode.lp;
           } else {
-            // initialize perms in the null node
-            pkg.perms = [node.perms = node.lp = defaultPermissions];
+            // place defaults at bottom of stack
+            node.lp = defaultPermissions;
           }
         },
         // Defines the path to update an owning salt - if any.
@@ -229,6 +227,11 @@
         _data: function (tagName, exists, tags, node) {
           var
             cfgs = {},
+            dataAry,
+            dataIdx = 0,
+            dataLn,
+            data,
+            typeofData,
             key
           ;
 
@@ -236,11 +239,13 @@
           node.dcfgs = [];
 
           if (exists) {
-            (isArray(tags._data) ? tags._data : [tags._data]).forEach(function (data) {
-              var
-                typeofData = typeof data,
-                key
-              ;
+            dataAry = isArray(tags._data) ? tags._data : [tags._data];
+            dataLn = dataAry.length;
+            for (; dataIdx < dataLn; dataIdx++) {
+
+              data = dataAry[dataIdx];
+              typeofData = typeof data;
+
               if (typeofData === 'string' && data) {
                 cfgs[data] = {
                   use: 0,
@@ -259,10 +264,10 @@
                   }
                 }
               }
-            });
+            }
             for (key in cfgs) {
               if (cfgs.hasOwnProperty(key)) {
-                node.dcfgs.push(cfgs[key]);
+                node.dcfgs[node.dcfgs.length] = cfgs[key];
               }
             }
           }
@@ -286,7 +291,7 @@
             // if there is a lastWalk array...
             if (node.lastWalk) {
               // add this node's index to the array
-              node.lastWalk.push(node.index);
+              node.lastWalk[node.lastWalk.length] = node.index;
             }
           }
         },
@@ -311,32 +316,25 @@
             node.fncs[traversalCallbackOrder[tagName]] = tagValue;
           }
         },
-        // Specifies where to direct the salt at the end of a sequence for a given branch
-        _tail: function (tagName, exists, tags, node, parentNode, pkg) {
-          var
-            tagValue,
-            tailData
-          ;
+        _tail: function (tagName, exists, tags, node, parentNode, pkg, idx) {
+          var tagValue;
+
+          // start with default
+          node.tail = -1;
+
+          // capture paired value, set default, or use parent
           if (exists) {
-            tagValue = tags._tail;
-            node.tail = tailData = {
-              p: tagValue
-            };
+            tagValue = tags[tagName];
+
             if (tagValue === true) {
-              tailData.n = node;
-            } else if (tagValue === false) {
-              // skip all when false
-              tailData.n =
-              tailData.t =
-                -1;
-            } else if (typeof tagValue === 'number' && !(tailData.n = pkg.nodes[tagValue])) {
-              // ignore invalid numbers now
-              tailData.t = -1;
+              // target self
+              node.tail = idx;
+            } else if (tagValue !== false) {
+              // don't tail when false
+              node.tail = tagValue;
             }
           } else if (parentNode) {
             node.tail = parentNode.tail;
-          } else {
-            node.tail = 0;
           }
         },
         // Specifies when a branch should be invisible to external queries
@@ -356,58 +354,6 @@
         // Clean up lastWalk flag
         _sequence: function (tagName, exists, tags, node) {
           delete node.lastWalk;
-        },
-        // Specifies where to direct the salt at the end of a sequence for a given branch
-        _tail: function (tagName, exists, tags, node, parentNode, pkg) {
-          var
-            tailData = node.tail,
-            tailNode
-          ;
-          node.tail = -1;
-          // if there is tail data to use/process
-          if (tailData) {
-
-            // resolve path when there is no node
-            if (!tailData.hasOwnProperty('n')) {
-              tailData.n = pkg.nodes[pkg.indexOf(tailData.p, node)];
-            }
-
-            // resolve tail index
-            if (!tailData.hasOwnProperty('t')) {
-              tailNode = tailData.n;
-              // if...
-              if (
-                // there is a tail target, and...
-                tailNode &&
-                // the tail target is not a descendent of this node, and...
-                !tailNode.within(node) &&
-                (
-                  // the tail target is not a sequence, or...
-                  !tailNode.seq ||
-                  (
-                    // the tail sequence is not the owning node, and...
-                    tailNode !== node &&
-                    // not an ancestor anyway
-                    !node.within(tailNode)
-                  )
-                )
-              ) {
-                // capture tail target index
-                tailData.t = tailNode.index;
-              } else {
-                // ignore invalid tail target
-                tailData.t = -1;
-              }
-            }
-
-            // if this is an owning node that tails itself...
-            if (exists && tailData.n === node) {
-              // use parent's tail value
-              node.tail = parentNode.tail;
-            } else {
-              node.tail = tailData.t;
-            }
-          }
         },
         // ensure node alias was not overridden
         _alias: function (tagName, exists, tags, node, parentNode, pkg, idx) {
@@ -432,7 +378,6 @@
           if (exists && (typeofTagValue = typeof (tagValue = tags[tagName])) !== 'function') {
             if (typeofTagValue === 'string' && tagValue.length) {
               if (tagValue.charAt(0) === '>') {
-                tagValue = tagValue.substr(1);
                 useTarget = 1;
               }
               tgtIdx = pkg.indexOf(tagValue, node);
@@ -442,9 +387,88 @@
             if (~tgtIdx && (tagName !== '_on' || tgtIdx !== idx)) {
               phase = traversalCallbackOrder[tagName];
               node.reds[phase] = [useTarget, tgtIdx];
-              node.fncs[phase] = sharedRedirectEventHandler;
+              node.fncs[phase] = redirectFlag;
             }
           }
+        },
+        // specify delay when entering on traversal
+        _wait: function (tagName, exists, tags, node, parentNode, pkg) {
+          var
+            tagValue = tags[tagName],
+            targetIndex,
+            firstIndexType,
+            waitParamsLn,
+            waitParams = staticUnusedArray
+          ;
+
+          node.delay = 0;
+
+          if (exists && tagValue !== false) {
+            if (Array.isArray(tagValue)) {
+              waitParams = tagValue;
+            } else if (tagValue !== true) {
+              waitParams = [tagValue];
+            }
+
+            // vet wait query, if present
+            waitParamsLn = waitParams.length;
+            firstIndexType = typeof waitParams[0];
+
+            // exit when only arg is not a number
+            if (waitParamsLn === 1 && firstIndexType !== 'number') {
+              return;
+            }
+
+            if (waitParamsLn > 1 && firstIndexType !== 'function') {
+              if (~(targetIndex = pkg.indexOf(waitParams[0]), node)) {
+                // resolve query
+                waitParams[0] = targetIndex;
+              } else {
+                // exit when first arg is not a valid query
+                return;
+              }
+            }
+
+            node.delay = waitParams;
+
+          }
+        },
+        // specify next node when entering on traversal
+        _next: function (tagName, exists, tags, node, parentNode, pkg) {
+          var
+            tagValue,
+            targetIndex
+          ;
+
+          node.nxt = -1;
+          node.nxtc = 0;
+
+          if (exists) {
+            if (typeof (tagValue = tags[tagName]) === 'string' && tagValue.charAt(0) === '>') {
+              // flag that this will clear existing waypoints
+              node.nxtc = 1;
+            }
+            if (~(targetIndex = pkg.indexOf(tagValue, node))) {
+              // capture index when valid
+              node.nxt = targetIndex;
+            }
+          }
+        },
+        // resolve and keep valid tail targets
+        _tail: function (tagName, exists, tags, node, parentNode, pkg, idx) {
+          var
+            query = node.tail,
+            targetIndex
+          ;
+
+          // resolve query
+          node.tail = targetIndex = pkg.indexOf(query, node);
+
+          // ensure resolved target is not pointing to self
+          if (targetIndex === idx) {
+            node.tail = -1;
+          }
+
         },
         _perms: function (tagName, exists, tags, node) {
           delete node.lp;
@@ -542,7 +566,7 @@
       corePostTagKeyCount
     ;
 
-    Salt.version = '0.5.0';
+    Salt.version = '0.5.5';
 
     // define remaining core tags and share tag initializers
     /*
@@ -1187,7 +1211,7 @@
           // lowercase all options
           lastPerms = {};
           for (key in option) {
-            if (option.hasOwnProperty(key)) {
+            if (option.hasOwnProperty(key) && key.charAt(0) !== '!') {
               lastPerms[key.toLowerCase()] = option[key];
             }
           }
@@ -1324,21 +1348,27 @@
     }
 
     function import_getStateByAbsolutePath( path, program ) {
-      var resolvedState = program;
+      var
+        resolvedState = program,
+        parts = path.slice(2, -1).split('/'),
+        partsLn = parts.length,
+        partIdx = 0,
+        partialPath
+      ;
 
-      if (
-        path.slice(2, -1).split('/').every(function ( partialPath ) {
-          if (
-            resolvedState.hasOwnProperty(partialPath) &&
-            import_isState(partialPath, resolvedState[partialPath])
-          ) {
-            resolvedState = resolvedState[partialPath];
-            return 1;
-          }
-        })
-      ) {
-        return resolvedState;
+      for (; partIdx < partsLn; partIdx++) {
+        partialPath = parts[partIdx];
+        if (
+          resolvedState.hasOwnProperty(partialPath) &&
+          import_isState(partialPath, resolvedState[partialPath])
+        ) {
+          resolvedState = resolvedState[partialPath];
+        } else {
+          return;
+        }
       }
+
+      return resolvedState;
     }
 
     function import_resolveBase( sourceState, program, importedPaths ) {
@@ -1347,6 +1377,7 @@
         baseState,
         sourceStateType = typeof sourceState,
         importTagValue,
+        importTagValueType,
         importPath
       ;
 
@@ -1354,15 +1385,20 @@
         importPath = sourceState;
       } else if (
         sourceStateType === 'object' &&
+        sourceState !== null &&
         sourceState.hasOwnProperty('_import')
       ) {
         importTagValue = sourceState._import;
+        importTagValueType = typeof importTagValue;
         // determine whether we're importing a path or an (external) object
-        if (typeof importTagValue === 'object') {
+        if (importTagValueType === 'object') {
           if (importTagValue instanceof Salt) {
             importTagValue = corePkgDef(importTagValue).nodes[1].value;
           }
           baseState = corePkgDef.prepNode(importTagValue, importTagValue) || importTagValue;
+        } else if (importTagValueType === 'function') {
+          // convert functions to states
+          baseState = {_on: importTagValue};
         } else {
           importPath = importTagValue;
         }
@@ -1390,20 +1426,6 @@
       return resolvedState;
     }
 
-    function sharedRedirectEventHandler() {
-      var
-        salt = this,
-        pkg = corePkgDef(salt),
-        tgtConfig = pkg.nodes[pkg.tank.currentIndex].reds[pkg.phase],
-        tgtIndex = tgtConfig[1]
-      ;
-      if (tgtConfig[0]) {
-        salt.get.apply(salt, [tgtIndex].concat(pkg.args));
-      } else {
-        salt.go(tgtIndex);
-      }
-    }
-
     // define package statics
     mix(corePkgDef, {
 
@@ -1416,7 +1438,7 @@
       attrKey: /^_/,
 
       // pattern for identifying invalid state names
-      badKey: /^\d|^\W|[^a-zA-Z\d\-_\+=\(\)\*\&\^\%\$\#\!\~\`\{\}\"\'\:\;\?\, ]+|^toString$/,
+      badKey: /^[^a-zA-Z]|\||\/|\.|^toString$/,
 
       // tree preprocessor
       prepTree: function (orig) {
@@ -1449,22 +1471,10 @@
         var
           pkg = this,
           activeSalt = activeSalts[0],
-          sharedProxyDataMember = {},
-          sharedProxyStateMember = {
-            name: '_null',
-            path: '..//',
-            depth: 0,
-            index: 0,
-            pins: true,
-            alias: 'null',
-            perms: copyOfDefaultPermissions,
-            groups: sharedProxyStateGroupsMember
-          },
           nodes = pkg.nodes,
           nodeCount = nodes.length,
           i, j,
-          node, parentNode, tagName,
-          pkgId
+          node, parentNode, tagName
         ;
 
         // init sub-instances hashes
@@ -1491,6 +1501,8 @@
         pkg.calls = [];
         // collection of nodes targeted and reached while traversing
         pkg.trail = [];
+        // permissions stack - begin with default perms
+        pkg.perms = [defaultPermissions];
         // state index to add to trail at end of traversal/resume
         pkg.tgtTrail = -1;
         // collection of declared variable tracking objects
@@ -1503,9 +1515,7 @@
         // collection of cached values
         pkg.cache = {
           // token query cache
-          indexOf: {},
-          // store cache
-          store: {}
+          indexOf: {}
         };
         // indicates when this salt is in the stack of navigating salts
         pkg.active = 0;
@@ -1516,7 +1526,9 @@
         // the number of child salts fired by this salt's program functions
         pkg.pinned = 0;
         // collection of parent salt references
-        pkg.pinning = [];
+        pkg.pinning = {};
+        // count of parent salt references
+        pkg.pinCnt = 0;
         // collection of targeted nodes
         pkg.targets = [];
         // identify the initial phase for this salt, 0 by default
@@ -1527,7 +1539,7 @@
         pkg.nodes[0].name = '_null';
         // set name of second node
         pkg.nodes[1].name = '_program';
-        // initialize nodes...
+        // initialize nodes from first to last
         for (i = 0; i < nodeCount; i++) {
           node = nodes[i];
           parentNode = nodes[node.parentIndex];
@@ -1550,7 +1562,8 @@
           node.reds = [];
 
           // run core tags
-          for (j = 0; j < coreTagKeyCount; j++) {
+          j = coreTagKeyCount;
+          while (j--) {
             tagName = coreTagKeys[j];
             coreTags[tagName](tagName, node.attrs.hasOwnProperty(tagName), node.attrs, node, parentNode, pkg, i);
           }
@@ -1563,22 +1576,27 @@
         }
 
         // run post core tags for each node
-        for (i = 0; i < nodeCount; i++) {
+        i = nodeCount;
+        // order matters less on cleanup
+        while (i--) {
           node = nodes[i];
-          for (j = 0; j < corePostTagKeyCount; j++) {
+          parentNode = nodes[node.parentIndex];
+          j = corePostTagKeyCount;
+          while (j--) {
             tagName = corePostTagKeys[j];
             corePostTags[tagName](tagName, node.attrs.hasOwnProperty(tagName), node.attrs, node, parentNode, pkg, i);
           }
         }
 
-        for (pkgId in pkg.pkgs) {
-          if (pkg.pkgs.hasOwnProperty(pkgId)) {
-            // reference data object in all proxy objects
-            pkg.pkgs[pkgId].proxy.data = sharedProxyDataMember;
-            // reference data object in all proxy objects
-            pkg.pkgs[pkgId].proxy.state = sharedProxyStateMember;
-          }
-        }
+        // reference data object in all proxy objects
+        pkg.proxy.data = {};
+        // reference state object in all proxy objects
+        pkg.proxy.state = {
+          perms: merge(defaultPermissions)
+        };
+
+        // init (other) state properties (added to sharedProxyStateMember)
+        corePkgDef.onNode.call(pkg, 0, pkg.tank.currentIndex);
 
         if (activeSalt) {
 
@@ -1629,7 +1647,11 @@
         state.path = currentNode.path;
         state.pins = currentNode.pins;
         state.alias = currentNode.alias;
+        state.root = currentNode.index == currentNode.rootIndex;
         state.groups = currentNode.cGrps.concat();
+        state.delays = !!currentNode.delay;
+        state.fwds = !!~currentNode.nxt;
+        state.tails = !!~currentNode.tail;
 
         // set pkg info
         pkg.groups = currentNode.groups;
@@ -1667,8 +1689,19 @@
       onTraverse: function (evtName, phase) {
         var
           pkg = this,
+          pkgArgs = pkg.args,
+          proxy = pkg.proxy,
           tank = pkg.tank,
-          node = pkg.nodes[tank.currentIndex]
+          node = pkg.nodes[tank.currentIndex],
+          fnc = node.fncs[phase],
+          isOnTraversal = !phase,
+          isRedirect = fnc === redirectFlag,
+          delayed = isOnTraversal && node.delay,
+          nexted = 0,
+          targetsLn,
+          redIndex,
+          redConfig,
+          nxtIndex
         ;
 
         pkg.phase = phase;
@@ -1679,20 +1712,60 @@
         }
 
         // prepend sequence node targets
-        if (node.seq && !phase) {
-          pkg.proxy.go.apply(pkg.proxy, node.seq);
+        if (isOnTraversal && node.seq) {
+          proxy.go.apply(proxy, node.seq);
         }
 
-        // invoke and track phase function
-        if (node.fncs[phase]) {
-          pkg.calls.push(node.index + '.' + phase);
-          // include arguments for the "on" function
-          pkg.result = node.fncs[phase].apply(pkg.proxy, (pkg.targets.length ? [] : pkg.args));
+        if (isRedirect) {
+          redConfig = node.reds[phase];
+          redIndex = redConfig[1];
 
-          if (pkg.paused || pkg.pinned) {
-            pkg.result = undefined;
+          if (redConfig[0]) {
+            proxy.get.apply(proxy, [redIndex].concat(pkgArgs));
+          } else {
+            proxy.go(redIndex);
           }
         }
+
+        if (isOnTraversal) {
+
+          nxtIndex = node.nxt;
+
+          if (~nxtIndex) {
+            nexted = 1;
+            if (node.nxtc) {
+              // queue (and clear) next immediate target
+              proxy.get.apply(proxy, [nxtIndex].concat(pkgArgs));
+            } else {
+              // queue (and clear) next immediate target
+              proxy.go(nxtIndex);
+            }
+          }
+
+          if (delayed) {
+            // queue delay (after redirect or before callback)
+            proxy.wait.apply(proxy, delayed);
+          }
+        }
+
+        if (fnc) {
+
+          // invoke and track phase function
+          pkg.calls[pkg.calls.length] = node.index + '.' + phase;
+
+          if (!isRedirect) {
+            targetsLn = pkg.targets.length;
+            // include arguments for the destination state's "on" function
+            pkg.result = fnc.apply(proxy, ((!targetsLn || (targetsLn === 1 && nexted)) ? pkgArgs : staticUnusedArray));
+          }
+
+        }
+
+        // clear result if paused or pinned
+        if (isRedirect || pkg.paused || pkg.pinned) {
+          pkg.result = undefined;
+        }
+
       },
 
       // execute delayed functions
@@ -1747,7 +1820,9 @@
           parentTank,
           blocked = pkg.pause || pkg.pinned || pkg.phase,
           hasTargets = pkg.targets.length,
-          node = pkg.nodes[tank.currentIndex]
+          node = pkg.nodes[tank.currentIndex],
+          pinning,
+          pinnedSaltId
         ;
 
         if (!blocked && (hasTargets || ~node.tail)) {
@@ -1755,7 +1830,7 @@
             // direct tank to the next state
             tank.go(pkg.targets[0]);
           } else {
-            // instruct salt to tail state
+            // instruct salt to the given tail index
             pkg.proxy.go(node.tail);
           }
         } else {
@@ -1771,6 +1846,7 @@
               // bind parent and this salt
               parentSalt.pinned++;
               pkg.pinning[parentTank.id] = parentSalt;
+              pkg.pinCnt++;
               parentTank.stop();
             }
           } else {
@@ -1797,18 +1873,30 @@
             }
 
             // update pinned salts
-            if (pkg.pinning.length) {
+            if (pkg.pinCnt) {
+              pinning = pkg.pinning;
               // first, reduce pinned count of each pinned salt
-              pkg.pinning.forEach(function (pinnedSalt) {
-                pinnedSalt.pinned--;
-              });
+              for (pinnedSaltId in pinning) {
+                if (pinning.hasOwnProperty(pinnedSaltId)) {
+                  pinning[pinnedSaltId].pinned--;
+                }
+              }
+
+              // then, resume each pinned salt (once this salt is complete)
               tank.post(function () {
-                // then, resume each pinned salt (once this salt is complete)
-                pkg.pinning.splice(0).forEach(function (pinnedSalt) {
-                  if (!(pinnedSalt.pinned || pinnedSalt.pause)) {
-                    pinnedSalt.go();
+                var pinnedSalt, pinnedSaltId;
+
+                pkg.pinning = {};
+                pkg.pinCnt = 0;
+                // first, reduce pinned count of each pinned salt
+                for (pinnedSaltId in pinning) {
+                  if (pinning.hasOwnProperty(pinnedSaltId)) {
+                    pinnedSalt = pinning[pinnedSaltId];
+                    if (!(pinnedSalt.pinned || pinnedSalt.pause)) {
+                      pinnedSalt.go();
+                    }
                   }
-                });
+                }
               });
             }
           }
@@ -1852,12 +1940,14 @@
         // based on the type of qry...
         switch (typeof qry) {
           case 'object':
+
             // if not null "object"...
             if (qry !== null) {
               // assume the object is a node, and retrieve it's index property value
               qry = qry.index;
             }
 
+          /* falls through */
           case 'number':
             // if the index is valid...
             if (nodes[qry]) {
@@ -1871,7 +1961,13 @@
             // get toString version of this function
             qry = qry + '';
 
+          /* falls through */
           case 'string':
+
+            // remove redirect flag
+            if (qry.charAt(0) === '>') {
+              qry = qry.substr(1);
+            }
 
             // short circuit special queries
             if (qry === '..//' || qry === '//') {
@@ -2115,7 +2211,7 @@
           pkg.targs = proxy.args;
         }
         // set "private" vars member
-        proxy.vars = pkg.vars;        
+        proxy.vars = pkg.vars;
         // set "private" args member
         proxy.args = pkg.args;
       },
@@ -2275,7 +2371,7 @@
             nodeRef = arguments[argumentIdx];
             resolvedIndex = pkg.vetIndexOf(nodeRef);
             if (~resolvedIndex) {
-              nodes.push(pkg.nodes[resolvedIndex].path);
+              nodes[nodes.length] = pkg.nodes[resolvedIndex].path;
             } else {
               return false;
             }
@@ -2340,7 +2436,7 @@
           return true;
         } else {
           return pkg.result;
-        } 
+        }
       },
       /**
       Target, add, or insert nodes to traverse, or resume towards the last target node.
@@ -2359,36 +2455,42 @@
           // collection of targets to add to targets
           waypoints = [],
           // success status for this call
-          result = 0;
+          result = 0,
+          args,
+          argIdx,
+          argLn,
+          resolvedIndex
+        ;
 
-        // if...
-        if (
-          // allowed or unlocked and ...
-          pkg.is('world', 'sub', 'owner', 'self') &&
-          // any and all node references are valid...
-          protoSlice.call(arguments).every(function (nodeRef) {
-            var
-              // resolve index of this reference
-              idx = pkg.vetIndexOf(nodeRef);
-
-            // add to waypoints
-            waypoints.push(idx);
-            // return true when the resolved index is not -1
-            return ~idx;
-          })
-        ) {
-          // if there are waypoints...
-          if (waypoints.length) {
-            // if the last waypoint matches the first target...
-            while (waypoints[waypoints.length - 1] === pkg.targets[0]) {
-              // remove the last waypoint
-              waypoints.pop();
+        // if allowed or unlocked and ...
+        if (pkg.is('world', 'sub', 'owner', 'self')) {
+          args = protoSlice.call(arguments);
+          argLn = args.length;
+          argIdx = argLn;
+          while (argIdx--) {
+            resolvedIndex = pkg.vetIndexOf(args[argIdx]);
+            if (~resolvedIndex) {
+              waypoints[waypoints.length] = resolvedIndex;
+            } else {
+              break;
             }
-            // prepend (remaining) waypoints to targets
-            pkg.targets = waypoints.concat(pkg.targets);
           }
-          // capture result of move attempt or true when paused
-          result = pkg.go() || wasPaused;
+          if (argLn === waypoints.length) {
+            // if passed waypoints...
+            if (argLn) {
+              // reverse waypoints
+              waypoints.reverse();
+              // if the last waypoint matches the first target...
+              while (waypoints[waypoints.length - 1] === pkg.targets[0]) {
+                // remove the last waypoint
+                waypoints.pop();
+              }
+              // prepend (remaining) waypoints to targets
+              pkg.targets = waypoints.concat(pkg.targets);
+            }
+            // capture result of move attempt or true when paused
+            result = pkg.go() || wasPaused;
+          }
         }
         // return result as boolean
         return !!result;
@@ -2442,7 +2544,7 @@
                   if (typeof callback === 'function') {
                     pkg.waitFnc = callback;
                     // only pass for function-actions
-                    pkg.waitArgs = (hasArgs && delayNodeIdx === undefined) ? protoSlice.call(args, 2) : [];
+                    pkg.waitArgs = (hasArgs && delayNodeIdx === undefined) ? protoSlice.call(args, 2) : staticUnusedArray;
                   }
                   // traverse towards the current target
                   pkg.go();

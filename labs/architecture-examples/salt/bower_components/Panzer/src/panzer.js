@@ -1,5 +1,5 @@
 /*!
- * Panzer v0.3.10 by Bemi Faison
+ * Panzer v0.3.13 by Bemi Faison
  * http://github.com/bemson/Panzer
  *
  * Dependencies:
@@ -118,7 +118,7 @@
               flags.tree = value;
             }
             // let each packager alter this node's structure
-            if (parent && panzer && panzer.pkgs.length) {
+            if (panzer && panzer.pkgs.length) {
               for (; pkg = panzer.pkgs[pkgIdx]; pkgIdx++) {
                 if (
                   typeof pkg.def.prepNode === 'function' &&
@@ -434,7 +434,7 @@
                 // engage the current node
                 nodeEngaged = 1;
                 tree.fire('engage');
-            } else if (!inCurrentNode && (nextPhase == 1 || nextPhase == 2)) {
+            } else if (!inCurrentNode && !resuming && (nextPhase == 1 || nextPhase == 2)) {
               if (nextPhase == 2) {
                 // clear target phase
                 nextPhase = -1;
