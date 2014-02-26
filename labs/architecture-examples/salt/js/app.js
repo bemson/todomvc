@@ -185,10 +185,10 @@
 
 				// watch location now and enable and re-routing with current hash
 				salt.vars.router.init();
-
-				// load stored items first
-				salt.go('load');
 			},
+
+			// load stored items first
+			_next: 'load',
 
 			// action when this state is targeted
 			// the string is short-hand for `this.go('all')`
@@ -583,6 +583,7 @@
 						// update the listing
 						this.go('/');
 					}
+
 				},
 
 				//list/all/purge
